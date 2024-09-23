@@ -78,6 +78,11 @@ func (c *JMRIntfCollector) sampleOfOkFileUpdateTime(securityDateCode string, log
 		return 0, 0
 	}
 
+	if len(files) == 0 {
+		level.Warn(c.logger).Log("msg", fmt.Sprintf("%v 目录中找不到 .ok 文件", basePath))
+		return 0, 0
+	}
+
 	var (
 		latestTime    time.Time
 		latestFile    string
