@@ -17,7 +17,8 @@ import (
 	"fmt"
 	stdlog "log"
 	"net/http"
-	_ "net/http/pprof"
+
+	// _ "net/http/pprof"
 	"os"
 	"os/user"
 	"runtime"
@@ -186,12 +187,13 @@ func main() {
 	level.Debug(logger).Log("msg", "Go MAXPROCS", "procs", runtime.GOMAXPROCS(0))
 
 	http.Handle(*metricsPath, newHandler(!*disableExporterMetrics, *maxRequests, logger))
-	jmrIntfHandler, err := customHandler(*maxRequests, logger, "jmr_intf")
-	if err != nil {
-		level.Error(logger).Log("msg", "Error creating jmr_intf handler", "err", err)
-		os.Exit(1)
-	}
-	http.Handle("/metrics-jmr-intf", jmrIntfHandler)
+
+	// TODO: 其实没必要用这个，直接利用 URL 的 Query 传递 []collect=jmr_intf 即可
+	// jmrIntfHandler, err := customHandler(*maxRequests, logger, "jmr_intf")
+	// if err != nil {
+	// 	level.Error(logger).Log("msg", "Error creating jmr_intf handler", "err", err)
+	// }
+	// http.Handle("/metrics-jmr-intf", jmrIntfHandler)
 
 	if *metricsPath != "/" {
 		landingConfig := web.LandingConfig{
@@ -221,25 +223,25 @@ func main() {
 }
 
 // TODO: 其实没必要用这个，直接利用 URL 的 Query 传递 []collect=jmr_intf 即可
-func customHandler(maxRequests int, logger log.Logger, c ...string) (http.Handler, error) {
-	nc, err := collector.NewNodeCollector(logger, c...)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't create jmr_intf collector: %s", err)
-	}
+// func customHandler(maxRequests int, logger log.Logger, c ...string) (http.Handler, error) {
+// 	nc, err := collector.NewNodeCollector(logger, c...)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("couldn't create custom collector: %s", err)
+// 	}
 
-	r := prometheus.NewRegistry()
-	if err := r.Register(nc); err != nil {
-		return nil, fmt.Errorf("couldn't register jmr_intf collector: %s", err)
-	}
+// 	r := prometheus.NewRegistry()
+// 	if err := r.Register(nc); err != nil {
+// 		return nil, fmt.Errorf("couldn't register custom collector: %s", err)
+// 	}
 
-	handler := promhttp.HandlerFor(
-		r,
-		promhttp.HandlerOpts{
-			ErrorLog:            stdlog.New(log.NewStdlibAdapter(level.Error(logger)), "", 0),
-			ErrorHandling:       promhttp.ContinueOnError,
-			MaxRequestsInFlight: maxRequests,
-		},
-	)
+// 	handler := promhttp.HandlerFor(
+// 		r,
+// 		promhttp.HandlerOpts{
+// 			ErrorLog:            stdlog.New(log.NewStdlibAdapter(level.Error(logger)), "", 0),
+// 			ErrorHandling:       promhttp.ContinueOnError,
+// 			MaxRequestsInFlight: maxRequests,
+// 		},
+// 	)
 
-	return handler, nil
-}
+// 	return handler, nil
+// }

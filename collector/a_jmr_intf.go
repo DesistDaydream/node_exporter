@@ -21,7 +21,7 @@ type JMRIntfCollector struct {
 }
 
 func init() {
-	registerCollector("jmr_intf", defaultEnabled, NewJMRIntfCollector)
+	registerCollector("jmr_intf", defaultDisabled, NewJMRIntfCollector)
 }
 
 func NewJMRIntfCollector(logger log.Logger) (Collector, error) {
