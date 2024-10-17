@@ -14,7 +14,10 @@ import (
 	"github.com/prometheus/node_exporter/pkg/models"
 )
 
+const okFileDirPath string = "/home/haohan/network/group"
+
 type JMRIntfCollector struct {
+	okFiles                 *prometheus.Desc
 	okFileUpdateTime        *prometheus.Desc
 	okFileContentUpdateTime *prometheus.Desc
 	logger                  log.Logger
@@ -26,6 +29,11 @@ func init() {
 
 func NewJMRIntfCollector(logger log.Logger) (Collector, error) {
 	return &JMRIntfCollector{
+		okFiles: prometheus.NewDesc(
+			prometheus.BuildFQName("jmr_intf", "ok_file", "files_count"),
+			"ok 文件总数",
+			[]string{"env", "security_data_type", "security_data_code"}, nil,
+		),
 		okFileUpdateTime: prometheus.NewDesc(
 			prometheus.BuildFQName("jmr_intf", "ok_file", "update_time"),
 			"ok 文件所在目录下，最后创建的文件的时间",
@@ -42,21 +50,14 @@ func NewJMRIntfCollector(logger log.Logger) (Collector, error) {
 
 func (c *JMRIntfCollector) Update(ch chan<- prometheus.Metric) error {
 	for code, dataType := range models.JMRSecurityDataTypeCode {
-		// 如果 code 的前两个字符为 00
-		if code[:2] == "00" {
-			okFileUtime, logUpdateTime := c.sampleOfOkFileUpdateTime(code, dataType.LogTimeFieldNum)
+		// 根据 code 的前两个字符判断一级代码
+		switch code[:2] {
+		case "00", "05":
+			okFileMtime := c.sampleOfOkFiles(ch, &dataType, code)
 			ch <- prometheus.MustNewConstMetric(
 				c.okFileUpdateTime,
 				prometheus.GaugeValue,
-				okFileUtime,
-				"jmr_intf",
-				dataType.Name,
-				code,
-			)
-			ch <- prometheus.MustNewConstMetric(
-				c.okFileContentUpdateTime,
-				prometheus.GaugeValue,
-				logUpdateTime,
+				okFileMtime,
 				"jmr_intf",
 				dataType.Name,
 				code,
@@ -68,26 +69,35 @@ func (c *JMRIntfCollector) Update(ch chan<- prometheus.Metric) error {
 }
 
 // ok文件更新时间
-// return: 1. 最后更新的 ok 文件的更新时间 2. ok 文件中第一行日志的更新时间
-func (c *JMRIntfCollector) sampleOfOkFileUpdateTime(securityDateCode string, logTimeFieldNum int) (float64, float64) {
-	okFileDirPath := "/home/haohan/network/group"
+// return: 1. 最后更新的 ok 文件的更新时间
+func (c *JMRIntfCollector) sampleOfOkFiles(ch chan<- prometheus.Metric, dataType *models.JMRTypeData, securityDateCode string) float64 {
 	basePath := filepath.Join(okFileDirPath, securityDateCode, fmt.Sprintf("%s-0000", time.Now().Format("20060102")))
 	files, err := filepath.Glob(filepath.Join(basePath, "*.ok"))
 	if err != nil {
 		level.Error(c.logger).Log("msg", fmt.Sprintf("无法获取 %v 的 ok 文件所在目录的内容", securityDateCode), "err", err)
-		return 0, 0
+		return 0
 	}
 
 	if len(files) == 0 {
 		level.Warn(c.logger).Log("msg", fmt.Sprintf("%v 目录中找不到 .ok 文件", basePath))
-		return 0, 0
+		return 0
 	}
+
+	// 指标：ok 文件总数
+	ch <- prometheus.MustNewConstMetric(
+		c.okFiles,
+		prometheus.CounterValue,
+		float64(len(files)),
+		"jmr_intf",
+		dataType.Name,
+		securityDateCode,
+	)
 
 	var (
 		latestTime    time.Time
-		latestFile    string
-		okFileMtime   float64
-		logUpdateTime float64
+		latestFile    string  // 目录中最后一个更新的文件
+		okFileMtime   float64 // latestFile 文件的 mtime
+		logUpdateTime float64 // latestFile 文件中第一条日志的更新时间
 	)
 
 	for _, file := range files {
@@ -104,9 +114,17 @@ func (c *JMRIntfCollector) sampleOfOkFileUpdateTime(securityDateCode string, log
 	}
 
 	okFileMtime = float64(latestTime.Unix())
-	logUpdateTime = c.getUpdateTimeOfLogInOkFile(latestFile, logTimeFieldNum)
+	logUpdateTime = c.getUpdateTimeOfLogInOkFile(latestFile, dataType.LogTimeFieldNum)
+	ch <- prometheus.MustNewConstMetric(
+		c.okFileContentUpdateTime,
+		prometheus.GaugeValue,
+		logUpdateTime,
+		"jmr_intf",
+		dataType.Name,
+		securityDateCode,
+	)
 
-	return okFileMtime, logUpdateTime
+	return okFileMtime
 }
 
 // 解析 ok 文件内容并获取第一条日志的更新时间
